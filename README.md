@@ -6,6 +6,7 @@ Slides for the main-stage talk at **Polkadot Assemble Conference: Genesis Mumbai
 
 **[▶ Open the slides](https://raw.githack.com/dhirajs0/polkadot-assemble/main/the-backend-you-dont-run.html)**, or download
 [`the-backend-you-dont-run.html`](the-backend-you-dont-run.html) and open it in a browser. It is one self-contained HTML file.
+A [PDF version](the-backend-you-dont-run.pdf) (15 pages) is also available.
 
 ## TL;DR
 
