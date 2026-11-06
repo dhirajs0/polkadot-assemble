@@ -62,7 +62,22 @@ flowchart TB
 | `Home` / `End` | First / last slide |
 | `1`–`9` | Jump to that slide |
 | `F` | Toggle fullscreen |
+| `P` | Open the presenter view in a second window |
 | `#N` in the URL | Open at slide N, e.g. `…/the-backend-you-dont-run.html#8` |
+
+### Presenter view
+
+Press `P` in the deck to open the presenter view. Your browser may ask you to allow pop-ups. Put the deck on the
+projector and keep the presenter window on your laptop.
+
+- **Now and Next:** what the audience sees, including the build step on slide 2, and what your next press will show.
+- **Speaker notes:** the cues for each slide in large type, plus its background facts, sources and the Q&A prep.
+- **Timer:** the clock starts on your first advance. It counts the title slide as its planned 30 seconds. The pace
+  label compares the time with each slide's planned window, with 10 seconds of leeway either way, and shows on pace,
+  ahead or behind. The bar shows the whole 30-minute slot. It turns amber at 25:15, when the talk should end and Q&A
+  starts, and red at 30:00. Use Pause/Resume and Reset as needed.
+- **Navigation:** arrow keys, Space, PageUp/PageDown and a presentation clicker all work in the presenter window, and so
+  do the Prev/Next buttons.
 
 ## Status, as of November 2026
 

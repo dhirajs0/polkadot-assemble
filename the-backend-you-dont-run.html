@@ -4083,5 +4083,437 @@ No infra team.
 Then delete them.</div><div data-node-path="1" style="display: flex; flex-direction: row; align-items: stretch; gap: 16px; min-width: 0px; min-height: 0px;"><div data-text-path="1.0" data-node-path="1.0" style="font-family: Inter, Arial, ui-sans-serif, system-ui, sans-serif; font-size: 32px; font-weight: 600; line-height: 1.4; color: rgb(244, 242, 245); margin: 0px; white-space: pre-wrap; overflow-wrap: break-word; text-wrap-style: pretty; min-width: 0px; min-height: 0px; background-color: rgb(14, 15, 20); padding: 16px 32px; border-radius: 256px; overflow-y: visible; box-sizing: border-box;">github.com/paritytech</div><div data-text-path="1.1" data-node-path="1.1" style="font-family: Inter, Arial, ui-sans-serif, system-ui, sans-serif; font-size: 32px; font-weight: 600; line-height: 1.4; color: rgb(244, 242, 245); margin: 0px; white-space: pre-wrap; overflow-wrap: break-word; text-wrap-style: pretty; min-width: 0px; min-height: 0px; background-color: rgb(14, 15, 20); padding: 16px 32px; border-radius: 256px; overflow-y: visible; box-sizing: border-box;">docs.polkadot.com/apps</div></div><div data-text-path="2" data-node-path="2" style="font-family: Unbounded, Verdana, ui-sans-serif, system-ui, sans-serif; font-size: 56px; font-weight: 500; line-height: 1.15; color: rgb(255, 245, 250); margin: 0px; white-space: pre-wrap; overflow-wrap: break-word; text-wrap-style: pretty; min-width: 0px; min-height: 0px; letter-spacing: -1px; overflow-y: visible;">Thank you. Questions?</div></div></div></div></div></div></section>
 </main>
 <div class="deck-pager" aria-hidden="true"></div>
+<script id="presenter-view">
+/* Presenter view: press P to open speaker notes, timing and a preview of what comes next in a second window.
+   Modelled on the Under the Hood deck's presenter. It reads the notes from each slide's data-speaker-notes,
+   so those stay the single source of truth, and it drives the deck by sending it the same keys you would press. */
+(function () {
+  'use strict';
+  var doc = document, root = doc.documentElement;
+  var TALK_SLOT = 30 * 60; // the whole main-stage slot, Q&A included
+  var LEEWAY = 10;         // seconds either side of a slide's planned window that still count as on pace
+  // Each slide's notes are one string: "start · duration • cue • cue • last cue Background…".
+  // The background starts at the first of these phrases inside the last cue.
+  var DETAIL_MARKERS = ['Context:', 'Sources:', 'Honesty:', 'Facts:', 'Facts, as of', 'Be fair:', 'Status:',
+    'SDP and ICE', 'Picture it', 'The game, in', 'The table:', 'This is a sketch', 'Pallets live is not',
+    'Status of each step:', 'Q&A quick answers:'];
+
+  var slides = [], total = 0, motion = { slides: [] }, notes = [], talkEnd = 0;
+  var pw = null, tickId = 0, syncId = 0, lastKey = '';
+  var timer = { running: false, startedAt: 0, banked: 0, armed: true, slideMark: 0, lastIndex: -1 };
+
+  function toSec(s) {
+    var m = /^(\d+):(\d\d)$/.exec(s);
+    if (m) return +m[1] * 60 + +m[2];
+    m = /^(\d+)\s*s$/.exec(s);
+    return m ? +m[1] : 0;
+  }
+  function mmss(s) {
+    s = Math.max(0, Math.floor(s));
+    var m = Math.floor(s / 60), r = s % 60;
+    return (m < 10 ? '0' : '') + m + ':' + (r < 10 ? '0' : '') + r;
+  }
+  function pad(n) { return (n < 10 ? '0' : '') + n; }
+
+  function parseNotes(el, i) {
+    var raw = (el.getAttribute('data-speaker-notes') || '').trim();
+    var segs = raw.split(' • ');
+    var head = segs.length > 1 ? segs.shift() : '';
+    var hm = /^(\d+:\d\d)\s*·\s*(\d+:\d\d|\d+\s*s)\s*(.*)$/.exec(head);
+    var rest = hm ? hm[3] : head;
+    var last = segs[segs.length - 1] || '', cut = -1, detail = '';
+    DETAIL_MARKERS.forEach(function (mk) {
+      var at = last.indexOf(' ' + mk);
+      if (at > 0 && (cut < 0 || at < cut)) cut = at;
+    });
+    if (cut > 0) { detail = last.slice(cut + 1).trim(); segs[segs.length - 1] = last.slice(0, cut).trim(); }
+    return {
+      title: el.getAttribute('data-label') || 'Slide ' + (i + 1),
+      start: hm ? toSec(hm[1]) : null,
+      dur: hm ? toSec(hm[2]) : 0,
+      refrain: /(^|·\s*)Refrain\b/.test(rest),
+      stage: (/\(([^)]*)\)/.exec(rest) || [])[1] || '',
+      cues: segs.filter(Boolean),
+      detail: detail
+    };
+  }
+
+  // Background text is one long run; break it before Q&A numbers, "Don’t" rules, and "Label:" lead-ins
+  // that open a new sentence (so "Context: Polkadot Assemble Conference: …" stays one paragraph).
+  function detailParas(text) {
+    return text
+      .replace(/\s(?=\d{1,2} “)/g, '\n')
+      .replace(/\s(?=Don’t )/g, '\n')
+      .replace(/([.!?✓~)])\s(?=[A-Z][^.:;!?“”(),\n]{0,38}:\s)/g, '$1\n')
+      .split('\n').map(function (p) { return p.trim(); }).filter(Boolean);
+  }
+
+  function stepsOf(i) {
+    var s = motion.slides && motion.slides[i];
+    return s && s.steps && s.steps.length ? s.steps : [{ hidden: [] }];
+  }
+  function sameSet(a, b) {
+    if (a.length !== b.length) return false;
+    for (var k = 0; k < a.length; k++) if (b.indexOf(a[k]) < 0) return false;
+    return true;
+  }
+
+  // Which slide and build step the audience sees right now.
+  function state() {
+    var idx = -1, k;
+    if (root.classList.contains('deck-stage')) {
+      for (k = 0; k < total; k++) {
+        if (!slides[k].hasAttribute('data-off') && !slides[k].hasAttribute('data-leaving')) { idx = k; break; }
+      }
+    }
+    if (idx < 0) {
+      var m = /^#(\d+)$/.exec(location.hash);
+      idx = m ? Math.max(0, Math.min(total - 1, +m[1] - 1)) : 0;
+    }
+    var steps = stepsOf(idx), step = steps.length - 1;
+    var hiddenNow = [].map.call(slides[idx].querySelectorAll('[data-build-hidden]'), function (n) {
+      return n.getAttribute('data-frame-id');
+    });
+    for (k = 0; k < steps.length; k++) if (sameSet(steps[k].hidden, hiddenNow)) { step = k; break; }
+    return { index: idx, step: step, steps: steps.length };
+  }
+
+  // A static copy of slide i, with the given build frames hidden, for the presenter's previews.
+  function snapshot(i, hidden) {
+    var frame = slides[i].querySelector('.deck-scaler > *') || slides[i];
+    var main = doc.querySelector('main');
+    var canvas = doc.createElement('div');
+    if (main) [].forEach.call(main.attributes, function (a) { canvas.setAttribute(a.name, a.value); });
+    canvas.className = 'pv-canvas';
+    canvas.setAttribute('aria-hidden', 'true');
+    var c = frame.cloneNode(true);
+    [].forEach.call(c.querySelectorAll('iframe,[data-embed-dead-label]'), function (n) { n.parentNode.removeChild(n); });
+    [].forEach.call(c.querySelectorAll('[data-frame-id]'), function (n) {
+      n.removeAttribute('data-magic-hidden');
+      if (hidden && hidden.indexOf(n.getAttribute('data-frame-id')) >= 0) n.setAttribute('data-build-hidden', '');
+      else n.removeAttribute('data-build-hidden');
+    });
+    canvas.appendChild(c);
+    return canvas;
+  }
+
+  // ---- timer ----
+  function elapsed() { return timer.banked + (timer.running ? (Date.now() - timer.startedAt) / 1000 : 0); }
+  function startTimer() { if (!timer.running) { timer.running = true; timer.startedAt = Date.now(); } timer.armed = false; }
+  function pauseTimer() { if (timer.running) { timer.banked = elapsed(); timer.running = false; } timer.armed = false; }
+  function resetTimer() { timer.running = false; timer.banked = 0; timer.armed = true; timer.slideMark = 0; }
+
+  function press(key, shift) {
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: key, shiftKey: !!shift, bubbles: true, cancelable: true }));
+  }
+
+  function toast(msg, ms) {
+    var t = doc.createElement('div');
+    t.className = 'deck-pager';
+    t.setAttribute('role', 'status');
+    t.style.right = 'auto';
+    t.style.left = '16px';
+    t.textContent = msg;
+    doc.body.appendChild(t);
+    setTimeout(function () { t.setAttribute('data-on', ''); }, 30);
+    setTimeout(function () { t.removeAttribute('data-on'); }, ms);
+    setTimeout(function () { if (t.parentNode) t.parentNode.removeChild(t); }, ms + 600);
+  }
+
+  var CSS = [
+    'html,body.pv{height:100%;margin:0;overflow:hidden;color-scheme:dark;background:#0e0f14!important}',
+    'body.pv{color:#f0efec;font:15px/1.45 Inter,ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif}',
+    '.pv-app{display:flex;flex-direction:column;height:100vh}',
+    '.pv-app,.pv-app *{box-sizing:border-box}',
+    '.pv-bar{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:10px 18px;border-bottom:1px solid #262733}',
+    '.pv-ttl{font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:#9a99a3;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}',
+    '.pv-ttl b{color:#ff4fa6;font-weight:600}',
+    '.pv-clock{display:flex;align-items:center;gap:12px;flex:none;font-family:"JetBrains Mono",ui-monospace,Menlo,monospace;font-variant-numeric:tabular-nums}',
+    '.pv-pace{font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:#9a99a3;text-align:right}',
+    '.pv-pace.on{color:#f0efec}.pv-pace.ahead{color:#6fe0a3}.pv-pace.behind{color:#ff6b6b}',
+    '.pv-elapsed{font-size:32px;font-weight:700;line-height:1}',
+    '.pv-elapsed.qa{color:#ffc061}.pv-elapsed.over{color:#ff6b6b}',
+    '.pv-of,.pv-wall{color:#6f6e78;font-size:13px}',
+    '.pv-btn{background:transparent;border:1px solid #33343f;color:#c9c8d0;border-radius:6px;padding:7px 10px;font:600 11px/1 Inter,system-ui,sans-serif;letter-spacing:.1em;text-transform:uppercase;cursor:pointer}',
+    '.pv-btn:hover,.pv-nav:hover{border-color:#e6007a;color:#ff4fa6}',
+    '.pv-track{position:relative;height:5px;background:#1b1c24;flex:none}',
+    '.pv-fill{position:absolute;left:0;top:0;bottom:0;width:0;background:#e6007a}',
+    '.pv-fill.qa{background:#ffc061}.pv-fill.over{background:#ff6b6b}',
+    '.pv-mark{position:absolute;top:-4px;bottom:-4px;width:2px;background:#f0efec}',
+    '.pv-mark.qa{background:#ffc061}',
+    '.pv-grid{flex:1;min-height:0;display:grid;grid-template-columns:minmax(0,1.08fr) minmax(0,.92fr);gap:16px;padding:16px}',
+    '.pv-left{display:flex;flex-direction:column;gap:12px;min-height:0}',
+    '.pv-pane{position:relative;margin:0;min-height:0;display:flex;flex-direction:column;gap:6px}',
+    '.pv-pane.now{flex:1.7 1 0}.pv-pane.next{flex:1 1 0}',
+    '.pv-lab{flex:none;font:600 11px/1 Inter,system-ui,sans-serif;letter-spacing:.16em;text-transform:uppercase;color:#9a99a3}',
+    '.pv-lab b{color:#ff4fa6;font-weight:600}',
+    '.pv-screen{position:relative;flex:1;min-height:0;overflow:hidden;border-radius:8px;border:1px solid #262733;background:#000}',
+    '.pv-canvas{position:absolute;left:0;top:0;width:1920px;height:1080px;transform-origin:0 0;pointer-events:none}',
+    '.pv-canvas [data-build-hidden],.pv-canvas [data-magic-hidden]{visibility:hidden}',
+    '.pv-end{position:absolute;inset:0;display:none;align-items:center;justify-content:center;color:#6f6e78;font-size:13px;letter-spacing:.16em;text-transform:uppercase}',
+    '.pv-pane.isend .pv-end{display:flex}',
+    '.pv-notes{min-height:0;overflow:auto;background:#15161d;border:1px solid #262733;border-radius:8px;padding:18px 22px}',
+    '.pv-nhd{display:flex;justify-content:space-between;align-items:baseline;gap:12px;font-family:"JetBrains Mono",ui-monospace,Menlo,monospace;font-size:12px;font-variant-numeric:tabular-nums}',
+    '.pv-count{color:#ff4fa6;letter-spacing:.12em}',
+    '.pv-tgt{color:#9a99a3;text-align:right}',
+    '.pv-onslide.over{color:#ff6b6b}',
+    '.pv-title{font:600 25px/1.15 Unbounded,Inter,system-ui,sans-serif;margin:10px 0;letter-spacing:-.01em;color:#fff}',
+    '.pv-tags{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 14px}',
+    '.pv-tag{font-size:12px;padding:3px 9px;border-radius:999px;background:#2a1020;color:#ff8cc6;border:1px solid #4a1a35}',
+    '.pv-tag.stage{background:#1d1e27;color:#c9c8d0;border-color:#2c2d38;font-style:italic}',
+    '.pv-cues{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:12px}',
+    '.pv-cues li{display:flex;gap:12px;font-size:19px;line-height:1.4;color:#f0efec}',
+    '.pv-cues li::before{content:"";flex:none;width:7px;height:7px;margin-top:.6em;border-radius:2px;background:#e6007a}',
+    '.pv-detail{margin-top:18px;border-top:1px solid #262733;padding-top:12px}',
+    '.pv-detail summary{cursor:pointer;font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:#9a99a3}',
+    '.pv-detail p{margin:9px 0 0;font-size:13.5px;line-height:1.5;color:#b9b8c2}',
+    '.pv-detail p b{color:#f0efec;font-weight:600}',
+    '.pv-detail p.dont{color:#ffc061}',
+    '.pv-detail p.qa{padding-left:10px;border-left:2px solid #33343f}',
+    '.pv-nxtline{margin-top:16px;padding-top:12px;border-top:1px solid #262733;font-size:13px;color:#9a99a3}',
+    '.pv-nxtline b{color:#f0efec;font-weight:600}',
+    '.pv-ctrl{display:flex;align-items:center;gap:12px;padding:0 16px 14px;flex:none}',
+    '.pv-nav{flex:1;background:transparent;border:1px solid #33343f;color:#f0efec;border-radius:8px;padding:12px;font:600 14px/1 Inter,system-ui,sans-serif;letter-spacing:.08em;text-transform:uppercase;cursor:pointer}',
+    '.pv-hint{flex:none;color:#6f6e78;font-size:11px;letter-spacing:.08em;text-transform:uppercase}'
+  ].join('\n');
+
+  var SHELL =
+    '<div id="pv-root" class="pv-app">' +
+    '<div class="pv-bar"><div class="pv-ttl" id="pv-ttl"></div>' +
+    '<div class="pv-clock"><span class="pv-pace" id="pv-pace"></span>' +
+    '<span class="pv-elapsed" id="pv-elapsed">00:00</span><span class="pv-of" id="pv-of"></span>' +
+    '<button class="pv-btn" id="pv-start" type="button">Start</button>' +
+    '<button class="pv-btn" id="pv-reset" type="button">Reset</button>' +
+    '<span class="pv-wall" id="pv-wall"></span></div></div>' +
+    '<div class="pv-track"><div class="pv-fill" id="pv-fill"></div>' +
+    '<div class="pv-mark" id="pv-mark" title="End of this slide’s window"></div>' +
+    '<div class="pv-mark qa" id="pv-qamark" title="Talk ends, Q&amp;A starts"></div></div>' +
+    '<div class="pv-grid"><div class="pv-left">' +
+    '<div class="pv-pane now"><div class="pv-lab" id="pv-nowlab">Now</div><div class="pv-screen" id="pv-now"></div></div>' +
+    '<div class="pv-pane next" id="pv-nextpane"><div class="pv-lab" id="pv-nextlab">Next</div>' +
+    '<div class="pv-screen" id="pv-next"><div class="pv-end">End of deck</div></div></div>' +
+    '</div><div class="pv-notes">' +
+    '<div class="pv-nhd"><span class="pv-count" id="pv-count"></span>' +
+    '<span class="pv-tgt"><span class="pv-onslide" id="pv-onslide"></span> · <span id="pv-window"></span></span></div>' +
+    '<div class="pv-title" id="pv-title"></div><div class="pv-tags" id="pv-tags"></div>' +
+    '<ul class="pv-cues" id="pv-cues"></ul>' +
+    '<details class="pv-detail" id="pv-detailbox" open><summary>Background, facts and sources</summary><div id="pv-detail"></div></details>' +
+    '<div class="pv-nxtline" id="pv-nxtline"></div></div></div>' +
+    '<div class="pv-ctrl"><button class="pv-nav" id="pv-prev" type="button">‹ Prev</button>' +
+    '<span class="pv-hint">← → Space PageUp/Down · a clicker works here too</span>' +
+    '<button class="pv-nav" id="pv-nextbtn" type="button">Next ›</button></div></div>';
+
+  function live() { return pw && !pw.closed && pw.document && pw.document.getElementById('pv-root'); }
+
+  function openPresenter() {
+    if (live()) { pw.focus(); return; }
+    var w = window.open('', 'backend_you_dont_run_presenter', 'width=1280,height=800');
+    if (!w) { toast('Pop-up blocked. Allow pop-ups for this page, then press P again.', 4000); return; }
+    pw = w;
+    var pd = w.document;
+    pd.open();
+    pd.write('<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Presenter</title></head><body class="pv"></body></html>');
+    pd.close();
+    pd.title = 'Presenter · ' + doc.title;
+    // The deck's fonts and styles, so the previews look exactly like the stage.
+    [].forEach.call(doc.querySelectorAll('link[rel="stylesheet"], style'), function (n) {
+      pd.head.appendChild(pd.importNode(n, true));
+    });
+    var css = pd.createElement('style');
+    css.textContent = CSS;
+    pd.head.appendChild(css);
+    pd.body.innerHTML = SHELL;
+    pd.getElementById('pv-ttl').textContent = doc.title + ' · ';
+    var b = pd.createElement('b'); b.textContent = 'Presenter'; pd.getElementById('pv-ttl').appendChild(b);
+    pd.getElementById('pv-of').textContent = '/ ' + mmss(talkEnd);
+    pd.getElementById('pv-qamark').style.left = (talkEnd / TALK_SLOT * 100) + '%';
+
+    function btn(id, fn) {
+      pd.getElementById(id).addEventListener('click', function (e) { fn(); e.currentTarget.blur(); tick(); });
+    }
+    btn('pv-prev', function () { press('ArrowLeft'); });
+    btn('pv-nextbtn', function () { press('ArrowRight'); });
+    btn('pv-start', function () { if (timer.running) pauseTimer(); else startTimer(); });
+    btn('pv-reset', resetTimer);
+    pd.addEventListener('keydown', function (e) {
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      if (/^(ArrowLeft|ArrowRight|ArrowUp|ArrowDown|PageUp|PageDown|Home|End| |[1-9])$/.test(e.key)) {
+        e.preventDefault();
+        press(e.key, e.shiftKey);
+      }
+    });
+    w.addEventListener('resize', fit);
+
+    lastKey = '';
+    timer.lastIndex = state().index;
+    sync();
+    clearInterval(tickId);
+    tickId = setInterval(function () {
+      if (!live()) { clearInterval(tickId); return; }
+      tick();
+    }, 250);
+    w.focus();
+  }
+
+  function fit() {
+    if (!live()) return;
+    [].forEach.call(pw.document.querySelectorAll('.pv-screen'), function (scr) {
+      var cv = scr.querySelector('.pv-canvas');
+      if (!cv) return;
+      var cw = scr.clientWidth, ch = scr.clientHeight, s = Math.min(cw / 1920, ch / 1080);
+      cv.style.transform = 'translate(' + (cw - 1920 * s) / 2 + 'px,' + (ch - 1080 * s) / 2 + 'px) scale(' + s + ')';
+    });
+  }
+
+  function queueSync() {
+    if (!live()) return;
+    clearTimeout(syncId);
+    syncId = setTimeout(sync, 30);
+  }
+
+  function sync() {
+    if (!live()) return;
+    var pd = pw.document, st = state(), n = notes[st.index];
+    function q(id) { return pd.getElementById(id); }
+
+    if (st.index !== timer.lastIndex) {
+      // The first advance starts the clock at the planned start of the slide you land on,
+      // so the title slide counts as its planned 30 s instead of putting you "ahead" at once.
+      if (timer.armed) { timer.banked = n.start; startTimer(); }
+      timer.lastIndex = st.index;
+      timer.slideMark = elapsed();
+    }
+    var key = st.index + ':' + st.step;
+    if (key === lastKey) { tick(); return; }
+    var slideChanged = lastKey.split(':')[0] !== String(st.index);
+    lastKey = key;
+
+    // previews: what the audience sees, and what the next press shows
+    var steps = stepsOf(st.index);
+    var screenNow = q('pv-now');
+    screenNow.textContent = '';
+    screenNow.appendChild(snapshot(st.index, steps[st.step].hidden));
+    q('pv-nowlab').textContent = st.steps > 1 ? 'Now · build ' + (st.step + 1) + ' / ' + st.steps : 'Now';
+
+    var nextPane = q('pv-nextpane'), screenNext = q('pv-next'), nextLab = q('pv-nextlab');
+    var old = screenNext.querySelector('.pv-canvas');
+    if (old) screenNext.removeChild(old);
+    nextPane.classList.remove('isend');
+    var nextLine = q('pv-nxtline');
+    nextLine.textContent = 'Next ▸ ';
+    var nb = pd.createElement('b');
+    if (st.step < st.steps - 1) {
+      screenNext.appendChild(snapshot(st.index, steps[st.step + 1].hidden));
+      nextLab.textContent = 'Next · build ' + (st.step + 2) + ' / ' + st.steps;
+      nb.textContent = 'build ' + (st.step + 2) + ' of ' + st.steps + ' on this slide';
+    } else if (st.index < total - 1) {
+      screenNext.appendChild(snapshot(st.index + 1, stepsOf(st.index + 1)[0].hidden));
+      nextLab.textContent = 'Next · slide ' + (st.index + 2);
+      nb.textContent = notes[st.index + 1].title;
+    } else {
+      nextPane.classList.add('isend');
+      nextLab.textContent = 'Next';
+      nb.textContent = 'End of deck. Q&A to ' + mmss(TALK_SLOT);
+    }
+    nextLine.appendChild(nb);
+    fit();
+
+    if (slideChanged) {
+      q('pv-count').textContent = pad(st.index + 1) + ' / ' + pad(total);
+      q('pv-window').textContent = 'plan ' + mmss(n.start) + '–' + mmss(n.end);
+      q('pv-title').textContent = n.title;
+      var tags = q('pv-tags');
+      tags.textContent = '';
+      if (n.refrain) {
+        var t1 = pd.createElement('span'); t1.className = 'pv-tag';
+        t1.textContent = 'Refrain: “…and you run no servers to do it.”';
+        tags.appendChild(t1);
+      }
+      if (n.stage) {
+        var t2 = pd.createElement('span'); t2.className = 'pv-tag stage';
+        t2.textContent = n.stage;
+        tags.appendChild(t2);
+      }
+      var ul = q('pv-cues');
+      ul.textContent = '';
+      n.cues.forEach(function (c) { var li = pd.createElement('li'); li.textContent = c; ul.appendChild(li); });
+      var box = q('pv-detailbox'), det = q('pv-detail');
+      det.textContent = '';
+      box.hidden = !n.detail;
+      detailParas(n.detail).forEach(function (para) {
+        var p = pd.createElement('p'), m = /^([A-Z][^.:;!?“”(),]{0,38}):(?:\s([\s\S]*))?$/.exec(para);
+        if (/^Don’t /.test(para)) p.className = 'dont';
+        else if (/^\d{1,2} “/.test(para)) p.className = 'qa';
+        if (m) {
+          var lb = pd.createElement('b'); lb.textContent = m[1] + ': ';
+          p.appendChild(lb);
+          p.appendChild(pd.createTextNode(m[2] || ''));
+        } else {
+          p.textContent = para;
+        }
+        det.appendChild(p);
+      });
+      q('pv-root').querySelector('.pv-notes').scrollTop = 0;
+    }
+    tick();
+  }
+
+  function tick() {
+    if (!live()) return;
+    var pd = pw.document;
+    function q(id) { return pd.getElementById(id); }
+    var e = elapsed(), n = notes[timer.lastIndex] || notes[0], fresh = !timer.running && e === 0;
+
+    var el = q('pv-elapsed');
+    el.textContent = mmss(e);
+    el.className = 'pv-elapsed' + (e >= TALK_SLOT ? ' over' : e >= talkEnd ? ' qa' : '');
+    q('pv-start').textContent = timer.running ? 'Pause' : e > 0 ? 'Resume' : 'Start';
+
+    var pace = q('pv-pace'), cls = '', txt;
+    if (fresh) txt = 'starts on first advance';
+    else if (e > n.end + LEEWAY) { txt = 'behind +' + mmss(e - n.end); cls = 'behind'; }
+    else if (e < n.start - LEEWAY) { txt = 'ahead ' + mmss(n.start - e); cls = 'ahead'; }
+    else { txt = 'on pace'; cls = 'on'; }
+    if (!timer.running && e > 0) txt = 'paused · ' + txt;
+    pace.textContent = txt;
+    pace.className = 'pv-pace' + (cls ? ' ' + cls : '');
+
+    var onSlide = Math.max(0, e - timer.slideMark), os = q('pv-onslide');
+    os.textContent = 'on slide ' + mmss(onSlide) + ' / ' + mmss(n.dur);
+    os.className = 'pv-onslide' + (!fresh && onSlide > n.dur + LEEWAY ? ' over' : '');
+
+    var fill = q('pv-fill');
+    fill.style.width = Math.min(100, e / TALK_SLOT * 100) + '%';
+    fill.className = 'pv-fill' + (e >= TALK_SLOT ? ' over' : e >= talkEnd ? ' qa' : '');
+    q('pv-mark').style.left = (n.end / TALK_SLOT * 100) + '%';
+    q('pv-wall').textContent = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  }
+
+  function init() {
+    slides = [].slice.call(doc.querySelectorAll('.deck-slide'));
+    total = slides.length;
+    if (!total) return;
+    try { motion = JSON.parse(doc.getElementById('deck-motion').textContent); } catch (err) { motion = { slides: [] }; }
+    notes = slides.map(parseNotes);
+    var t = 0;
+    notes.forEach(function (n) { if (n.start === null) n.start = t; n.end = n.start + n.dur; t = n.end; });
+    talkEnd = t;
+
+    window.addEventListener('keydown', function (e) {
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      if (e.key === 'p' || e.key === 'P') { e.preventDefault(); openPresenter(); }
+    });
+    new MutationObserver(queueSync).observe(doc.querySelector('main') || doc.body, {
+      subtree: true, attributes: true, attributeFilter: ['data-off', 'data-leaving', 'data-build-hidden']
+    });
+    window.addEventListener('hashchange', queueSync);
+    window.addEventListener('resize', queueSync);
+    window.addEventListener('pagehide', function () { if (live()) pw.close(); });
+    toast('Press P for the presenter view', 3000);
+  }
+
+  if (doc.readyState === 'loading') doc.addEventListener('DOMContentLoaded', init); else init();
+})();
+</script>
 </body>
 </html>
