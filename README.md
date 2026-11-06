@@ -6,7 +6,7 @@ Slides for the main-stage talk at **Polkadot Assemble Conference: Genesis Mumbai
 
 **[▶ Open the slides](https://raw.githack.com/dhirajs0/polkadot-assemble/main/the-backend-you-dont-run.html)**, or download
 [`the-backend-you-dont-run.html`](the-backend-you-dont-run.html) and open it in a browser. It is one self-contained HTML file.
-A [PDF version](the-backend-you-dont-run.pdf) (15 pages) is also available.
+A [PDF version](the-backend-you-dont-run.pdf) (14 pages) is also available.
 
 ## TL;DR
 
@@ -43,27 +43,28 @@ flowchart TB
 | 4 | The shape of the stack |
 | 5 | The light client is the connection |
 | 6 | Celerity: private messages, no server |
-| 7 | Calls with no signaling server |
+| 7 | Celerity: calls with no signaling server |
 | 8 | Levity: storage that expires, on purpose |
-| 9 | Humanity: prove you’re a person, not which person |
+| 9 | Humanity: prove you’re a person, not which one |
 | 10 | Personhood is the rate limiter |
-| 11 | A bot-free community app (a sketch) |
+| 11 | One alias per person: an app for this event |
 | 12 | Where it stands today |
-| 13 | How it compares, for Ethereum developers |
-| 14 | Start today |
-| 15 | Count your servers. Then delete them. |
+| 13 | Start today, in three steps |
+| 14 | Count your servers. Then delete them. |
 
 ### Controls
 
 | Key | Action |
 |---|---|
-| `→` `↓` `Space` `PageDown` | Next slide |
-| `←` `↑` `Shift+Space` `PageUp` | Previous slide |
+| `→` `↓` `Space` `Enter` `PageDown` | Next build step or slide |
+| `←` `↑` `Backspace` `PageUp` | Previous build step or slide |
 | `Home` / `End` | First / last slide |
-| `1`–`9` | Jump to that slide |
 | `F` | Toggle fullscreen |
+| `B` or `.` | Blank the screen (press again to restore) |
 | `P` | Open the presenter view in a second window |
 | `#N` in the URL | Open at slide N, e.g. `…/the-backend-you-dont-run.html#8` |
+
+On a touch screen, swipe left or right to move between slides.
 
 ### Presenter view
 
@@ -71,13 +72,14 @@ Press `P` in the deck to open the presenter view. Your browser may ask you to al
 projector and keep the presenter window on your laptop.
 
 - **Now and Next:** what the audience sees, including the build step on slide 2, and what your next press will show.
-- **Speaker notes:** the cues for each slide in large type, plus its background facts, sources and the Q&A prep.
-- **Timer:** the clock starts on your first advance. It counts the title slide as its planned 30 seconds. The pace
-  label compares the time with each slide's planned window, with 10 seconds of leeway either way, and shows on pace,
-  ahead or behind. The bar shows the whole 30-minute slot. It turns amber at 25:15, when the talk should end and Q&A
-  starts, and red at 30:00. Use Pause/Resume and Reset as needed.
+- **Speaker notes:** the cues for each slide in large type, plus its background facts, sources and the Q&A prep. The
+  text-size buttons make the notes larger or smaller.
+- **Timer:** the clock starts on your first advance, or press Start (or `S`). The pace label compares the time with
+  each slide's planned window, with 10 seconds of leeway either way, and shows on pace, ahead or behind. A bar shows
+  the time on the current slide against its budget and turns red when you run over. The talk is planned to end at
+  23:45; after that the timer counts down Q&A to 30:00. Use Pause/Resume and Reset as needed.
 - **Navigation:** arrow keys, Space, PageUp/PageDown and a presentation clicker all work in the presenter window, and so
-  do the Prev/Next buttons.
+  do the Prev/Next buttons. `B` blanks the projector screen from here too.
 
 ## Status, as of November 2026
 
