@@ -2,7 +2,7 @@
 
 Slides for the main-stage talk at **Polkadot Assemble Conference: Genesis Mumbai Edition**, Saturday 7 Nov 2026.
 
-> Private messaging, storage and personhood with Polkadot Trinity, and you run no servers to do it.
+> Private messaging, storage and personhood with Trinity, and you run no servers to do it.
 
 **[▶ Open the slides](https://raw.githack.com/dhirajs0/polkadot-assemble/main/the-backend-you-dont-run.html)**, or download
 [`the-backend-you-dont-run.html`](the-backend-you-dont-run.html) and open it in a browser. It is one self-contained HTML file.
@@ -11,7 +11,7 @@ A [PDF version](the-backend-you-dont-run.pdf) (14 pages) is also available.
 ## TL;DR
 
 A typical 2026 hackathon dApp depends on about six operators: a frontend host, an RPC provider, an IPFS gateway, a
-chat backend, a WebRTC signaling server and a bot filter. Polkadot Trinity replaces them with the network itself, so
+chat backend, a WebRTC signaling server and a bot filter. Trinity replaces them with the network itself, so
 there are no servers you run and fewer to trust. On the web, a **light client (smoldot)** runs inside the host and checks
 every answer; the iOS and Android hosts use RPC nodes today. Apps build on three blocks:
 
