@@ -2,7 +2,7 @@
 
 Slides for the main-stage talk at **Polkadot Assemble Conference: Genesis Mumbai Edition**, Saturday 7 Nov 2026.
 
-> Private messaging, storage and personhood on Polkadot, and you run no servers to do it.
+> Private messaging, storage and personhood with Polkadot Trinity, and you run no servers to do it.
 
 **[▶ Open the slides](https://raw.githack.com/dhirajs0/polkadot-assemble/main/the-backend-you-dont-run.html)**, or download
 [`the-backend-you-dont-run.html`](the-backend-you-dont-run.html) and open it in a browser. It is one self-contained HTML file.
@@ -10,22 +10,23 @@ A [PDF version](the-backend-you-dont-run.pdf) (14 pages) is also available.
 
 ## TL;DR
 
-A typical 2026 hackathon dApp depends on about six operators: a frontend host, an RPC provider, an IPFS pinning service, a
-chat backend, a WebRTC signaling server and a bot filter. Polkadot Trinity replaces them with the network itself. A
-**light client (smoldot)** runs inside the host and checks every answer, and apps build on three blocks:
+A typical 2026 hackathon dApp depends on about six operators: a frontend host, an RPC provider, an IPFS gateway, a
+chat backend, a WebRTC signaling server and a bot filter. Polkadot Trinity replaces them with the network itself, so
+there are no servers you run and fewer to trust. On the web, a **light client (smoldot)** runs inside the host and checks
+every answer; the iOS and Android hosts use RPC nodes today. Apps build on three blocks:
 
 | Block | What it gives you | Where it lives |
 |---|---|---|
 | **Celerity** (Statement Store) | Private messages, presence and call signaling over gossip. Apps encrypt end to end. | People chain, para 1004 |
 | **Levity** (Bulletin Chain) | Content-addressed storage (CID + Bitswap), kept about 14 days and renewable | Bulletin chain, para 1010 |
-| **Humanity** (proof of personhood) | One unlinkable alias per app, through a ring-VRF proof. No biometrics, no state ID. | People chain, para 1004 |
+| **Humanity** (proof of personhood) | One unlinkable alias per app, through a ring-VRF proof. No iris scan, no state ID. | People chain, para 1004 |
 
-The twist: **personhood is the rate limiter.** Messaging and storage quotas go to people, not wallets.
+The twist: **personhood is the rate limiter.** Messaging and storage quotas go per person, not per wallet.
 
 ```mermaid
 flowchart TB
-    P["Product<br/>sandboxed app at name.dot"] -->|"TrUAPI (SCALE frames)"| H["Host: mobile, desktop or web<br/>keys + smoldot light client"]
-    H -->|"peer to peer, every answer checked"| N
+    P["Product<br/>sandboxed app at name.dot"] -->|"TrUAPI (SCALE frames)"| H["Host: mobile, desktop or web<br/>keys; smoldot light client on the web"]
+    H -->|"web: light client, every answer checked<br/>mobile: RPC nodes"| N
     subgraph N["Polkadot"]
         AH["Asset Hub · 1000<br/>contracts, DotNS"]
         PE["People · 1004<br/>Celerity + Humanity"]
@@ -84,7 +85,8 @@ projector and keep the presenter window on your laptop.
 ## Status, as of November 2026
 
 - **Live on Polkadot:** the chain layer. That means the Bulletin chain (storage since 1 Sep 2026), the statement store
-  and personhood pallets on People (10 Sep 2026), DotNS contracts, and lite-person onboarding (Ref #1958, 2 Nov 2026).
+  and personhood pallets on People (10 Sep 2026), DotNS contracts, and lite personhood, by a 75 DOT fee (since 10 Sep 2026) or by
+  app attestation (Ref #1958, 2 Nov 2026). A lite person is not a proven human.
 - **Testnet only:** the developer kit (Paseo Next v2), the personhood recognition game and publishing apps to `.dot`
   names. TrUAPI is `0.x` and ships weekly, so pin your versions.
 
@@ -93,10 +95,11 @@ projector and keep the presenter window on your laptop.
 ```sh
 # 1 · Run your Product with a local signing host
 curl -fsSL https://raw.githubusercontent.com/paritytech/trinity-user-agents/main/scripts/truapi-host-installer.sh | bash
-truapi-host dev -- yarn dev:paseo
+truapi-host dev -- yarn dev
+# add the dev-only tag to your page: <script src="http://127.0.0.1:9955/bootstrap.js"></script>
 
 # 2 · Add the SDK
-pnpm add @parity/product-sdk
+yarn add @parity/product-sdk
 
 # 3 · Ship a static app to a .dot name
 npm install -g bulletin-deploy
